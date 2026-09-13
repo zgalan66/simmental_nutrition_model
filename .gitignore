@@ -1,8 +1,11 @@
 __pycache__/
 *.pyc
 *.db
+*.pub
+wangjun*
+id_ed25519
+id_ed25519.pub
 .env
 .DS_Store
-*.bat
 6}
 import*.txt
