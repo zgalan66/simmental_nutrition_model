@@ -26,29 +26,11 @@ jobs:
         pip install -r requirements.txt
         pip install pytest pytest-asyncio httpx
 
-    - name: Set DATABASE_URL
-      run: echo "DATABASE_URL=sqlite+aiosqlite:///./simmental_nutrition.db" >> $GITHUB_ENV
-
     - name: Initialize database
-      run: |
-        python init_project.py
+      run: python init_project.py
 
-    - name: Seed feeds (insert 盐 if missing)
-      run: |
-        python -c "
-import sqlite3, uuid
-conn = sqlite3.connect('simmental_nutrition.db')
-cur = conn.cursor()
-cur.execute(\"SELECT COUNT(*) FROM feeds WHERE name='盐'\")
-if cur.fetchone()[0] == 0:
-    import datetime
-    cur.execute('INSERT INTO feeds (id, name, category, dm_pct, cp_pct, ndf_pct, adf_pct, me_mj_kg, tdn_pct, ca_pct, p_pct, price_yuan_kg, is_active, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)', (str(uuid.uuid4()), '盐', '矿物质', 98.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.3, 0.0, 2.5, 1, datetime.datetime.now().isoformat()))
-    conn.commit()
-    print('盐 inserted')
-else:
-    print('盐 already exists')
-conn.close()
-"
+    - name: Seed salt if missing
+      run: python -c 'import sqlite3,uuid;conn=sqlite3.connect("simmental_nutrition.db");c=conn.cursor();c.execute("INSERT OR IGNORE INTO feeds (id,name,category,dm_pct,cp_pct,ndf_pct,adf_pct,me_mj_kg,tdn_pct,ca_pct,p_pct,price_yuan_kg,is_active,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",(str(uuid.uuid4()),"盐","矿物质",98.0,0.0,0.0,0.0,0.0,0.0,0.3,0.0,2.5,1,"2026-09-14"));conn.commit();conn.close();print("done")'
 
     - name: Run pytest
       run: pytest tests/ -v --tb=short

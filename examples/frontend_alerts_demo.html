@@ -1,0 +1,79 @@
+\
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🚨 智能预警系统 Demo</title>
+<style>
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 20px; background: #f5f7fa; }
+.container { max-width: 1200px; margin: 0 auto; }
+h1 { color: #2c3e50; }
+.card { background: white; border-radius: 12px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+.btn { padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; margin-right: 10px; margin-bottom: 10px; }
+.btn-primary { background: #3498db; color: white; }
+.btn-warning { background: #f39c12; color: white; }
+.btn-success { background: #27ae60; color: white; }
+.alert-item { padding: 15px; border-left: 4px solid #ddd; margin-bottom: 10px; background: #fafafa; border-radius: 4px; }
+.alert-critical { border-left-color: #e74c3c; }
+.alert-warning { border-left-color: #f39c12; }
+.alert-info { border-left-color: #3498db; }
+.badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-right: 5px; }
+.badge-price { background: #e74c3c; color: white; }
+.badge-nutrition { background: #f39c12; color: white; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 20px; }
+.stat-card { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 12px; text-align: center; }
+.stat-card h3 { margin: 0; font-size: 36px; }
+.stat-card p { margin: 5px 0 0; opacity: 0.9; }
+</style>
+</head>
+<body>
+<div class="container">
+<h1>🚨 西门塔尔公牛营养模型 - 智能预警系统</h1>
+<div class="stats">
+<div class="stat-card"><h3 id="totalAlerts">-</h3><p>总预警数</p></div>
+<div class="stat-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);"><h3 id="activeAlerts">-</h3><p>活跃预警</p></div>
+</div>
+<div class="card">
+<h3>🎮 操作面板</h3>
+<button class="btn btn-primary" onclick="initDefaults()">初始化规则</button>
+<button class="btn btn-warning" onclick="checkPrice()">检测价格异常</button>
+<button class="btn btn-success" onclick="checkNutrition()">检测营养偏离</button>
+<button class="btn btn-primary" onclick="loadActive()">刷新活跃预警</button>
+<button class="btn btn-primary" onclick="loadSummary()">刷新汇总</button>
+</div>
+<div class="card">
+<h3>📋 活跃预警</h3>
+<div id="alertsList">点击"刷新活跃预警"加载数据...</div>
+</div>
+<div class="card">
+<h3>📜 预警规则</h3>
+<button class="btn btn-primary" onclick="loadRules()">加载规则</button>
+<div id="rulesList" style="margin-top: 10px;"></div>
+</div>
+</div>
+<script>
+// ✅ 改成绝对地址，避免 file:// 或跨域问题
+const API = 'http://localhost:8000/api/v1/alerts';
+
+async function api(path, opts={}) {
+  try {
+    const r = await fetch(API + path, opts);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return await r.json();
+  } catch (e) {
+    console.error('API 请求失败:', e, '路径:', path);
+    alert('请求失败: ' + e.message + '\n请确认后端已启动: http://localhost:8000/docs');
+    return { data: { items: [], total: 0 }, success: false };
+  }
+}
+async function initDefaults() { const d = await api('/init-defaults', {method:'POST'}); alert(d.message||'完成'); }
+async function checkPrice() { const d = await api('/check/price', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'}); alert(`触发 ${d.data&&d.data.count||0} 条价格预警`); loadActive(); }
+async function checkNutrition() { const d = await api('/check/nutrition', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'}); alert(`触发 ${d.data&&d.data.count||0} 条营养预警`); loadActive(); }
+async function loadActive() { const d = await api('/active'); document.getElementById('activeAlerts').textContent = (d.data&&d.data.total)||0; const list = document.getElementById('alertsList'); if(!d.data||!d.data.items||!d.data.items.length) { list.innerHTML='<p>暂无活跃预警</p>'; return; } list.innerHTML = d.data.items.map(a=>`<div class="alert-item alert-${a.severity}"><strong>${a.title}</strong><p>${a.message}</p><span class="badge badge-${a.alert_type==='price'?'price':'nutrition'}">${a.alert_type}</span><span class="badge" style="background:#ddd;color:#333">${a.severity}</span></div>`).join(''); }
+async function loadSummary() { const d = await api('/summary'); document.getElementById('totalAlerts').textContent = (d.data&&d.data.total)||0; }
+async function loadRules() { const d = await api('/rules'); document.getElementById('rulesList').innerHTML = (d.data&&d.data.map)? d.data.map(r=>`<div style="padding:8px;border-bottom:1px solid #eee"><strong>${r.name}</strong> <span class="badge badge-${r.alert_type==='price'?'price':'nutrition'}">${r.alert_type}</span> ${r.severity}</div>`).join('') : '无规则'; }
+loadSummary(); loadActive();
+</script>
+</body>
+</html>

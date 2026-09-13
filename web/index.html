@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>西门塔尔公牛营养模型系统</title>
+<style>
+* { box-sizing: border-box; }
+body { margin: 0; font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; background: #f5f7fa; color: #2c3e50; }
+nav { background: #2c3e50; color: white; padding: 0 20px; display: flex; align-items: center; height: 56px; }
+nav h1 { font-size: 18px; margin: 0 30px 0 0; font-weight: 500; }
+nav a { color: #bdc3c7; text-decoration: none; padding: 0 16px; height: 56px; display: flex; align-items: center; cursor: pointer; font-size: 14px; }
+nav a.active, nav a:hover { color: white; background: #34495e; }
+main { max-width: 1400px; margin: 20px auto; padding: 0 20px; }
+.card { background: white; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+.card h2 { margin-top: 0; font-size: 16px; font-weight: 500; color: #34495e; }
+button { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; background: #3498db; color: white; margin-right: 8px; }
+button:hover { opacity: 0.9; }
+button.danger { background: #e74c3c; }
+button.success { background: #27ae60; }
+button.gray { background: #95a5a6; }
+input, select { padding: 7px 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px; margin-right: 8px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #ecf0f1; }
+th { background: #f8f9fa; font-weight: 500; color: #7f8c8d; font-size: 12px; }
+tr:hover { background: #f8f9fa; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 500; }
+.badge-info { background: #d1ecf1; color: #0c5460; }
+.badge-warning { background: #fff3cd; color: #856404; }
+.badge-critical { background: #f8d7da; color: #721c24; }
+.badge-ok { background: #d4edda; color: #155724; }
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 20px; }
+.stat { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 8px; }
+.stat h3 { margin: 0; font-size: 32px; font-weight: 600; }
+.stat p { margin: 4px 0 0; font-size: 13px; opacity: 0.85; }
+.modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 100; }
+.modal { background: white; border-radius: 8px; padding: 24px; max-width: 800px; width: 90%; max-height: 85vh; overflow-y: auto; }
+.modal h2 { margin-top: 0; }
+.toast { position: fixed; bottom: 30px; right: 30px; background: #2c3e50; color: white; padding: 12px 20px; border-radius: 4px; z-index: 200; opacity: 0; transition: opacity 0.3s; }
+.toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<nav>
+  <h1>🐂 西门塔尔公牛营养模型</h1>
+  <a data-tab="feeds">原料库</a>
+  <a data-tab="formulas">配方</a>
+  <a data-tab="optimize">优化</a>
+  <a data-tab="alerts">预警</a>
+  <a data-tab="dashboard">看板</a>
+</nav>
+<main id="main"></main>
+<div class="toast" id="toast"></div>
+<script>
+const API = "/api/v1";
+let state = { tab: "feeds" };
+
+function toast(msg, ok) {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.style.background = ok === false ? "#e74c3c" : "#27ae60";
+  t.classList.add("show");
+  setTimeout(function(){ t.classList.remove("show"); }, 2500);
+}
+
+async function api(path, opts) {
+  const r = await fetch(API + path, opts);
+  const j = await r.json().catch(function(){ return {}; });
+  if (!r.ok) { toast(j.detail || j.message || "请求失败", false); throw j; }
+  return j;
+}
+
+function nf(v) { return v == null ? "-" : Number(v).toFixed(2); }
+
+function switchTab(tab) {
+  state.tab = tab;
+  document.querySelectorAll("nav a").forEach(function(a){ a.classList.toggle("active", a.dataset.tab === tab); });
+  render();
+}
+
+async function render() {
+  const m = document.getElementById("main");
+  m.innerHTML = "<div class=\"card\">加载中...</div>";
+  try {
+    if (state.tab === "feeds") await renderFeeds(m);
+    else if (state.tab === "formulas") await renderFormulas(m);
+    else if (state.tab === "optimize") await renderOptimize(m);
+    else if (state.tab === "alerts") await renderAlerts(m);
+    else if (state.tab === "dashboard") await renderDashboard(m);
+  } catch (e) {
+    m.innerHTML = "<div class=\"card\">加载失败：" + (e.detail || e.message || e) + "</div>";
+  }
+}
+
+// ========== 原料 ==========
+async function renderFeeds(m) {
+  const data = await api("/feeds/");
+  const feeds = data.data || [];
+  let html = "<div class=\"card\"><h2>原料库（共 " + feeds.length + " 种）</h2>";
+  html += "<input id=\"search\" placeholder=\"搜索名称...\" oninput=\"filterFeeds()\" />";
+  html += "<select id=\"catFilter\" onchange=\"filterFeeds()\"><option value=\"\">全部类别</option>";
+  const cats = [];
+  feeds.forEach(function(f){ if (f.category && cats.indexOf(f.category) < 0) cats.push(f.category); });
+  cats.forEach(function(c){ html += "<option>" + c + "</option>"; });
+  html += "</select></div>";
+  html += "<div class=\"card\"><table id=\"feedsTable\"><thead><tr>";
+  html += "<th>名称</th><th>类别</th><th>DM%</th><th>CP%</th><th>NDF%</th><th>ME</th><th>TDN%</th><th>Ca%</th><th>P%</th><th>价格</th>";
+  html += "</tr></thead><tbody>";
+  feeds.forEach(function(f){
+    html += "<tr data-name=\"" + f.name + "\" data-cat=\"" + (f.category||"") + "\">";
+    html += "<td><b>" + f.name + "</b></td>";
+    html += "<td>" + (f.category||"-") + "</td>";
+    html += "<td>" + nf(f.dm_pct) + "</td>";
+    html += "<td>" + nf(f.cp_pct) + "</td>";
+    html += "<td>" + nf(f.ndf_pct) + "</td>";
+    html += "<td>" + nf(f.me_mj_kg) + "</td>";
+    html += "<td>" + nf(f.tdn_pct) + "</td>";
+    html += "<td>" + nf(f.ca_pct) + "</td>";
+    html += "<td>" + nf(f.p_pct) + "</td>";
+    html += "<td>" + (f.price_yuan_kg != null ? "¥" + f.price_yuan_kg : "-") + "</td>";
+    html += "</tr>";
+  });
+  html += "</tbody></table></div>";
+  m.innerHTML = html;
+}
+
+function filterFeeds() {
+  const q = document.getElementById("search").value.toLowerCase();
+  const cat = document.getElementById("catFilter").value;
+  document.querySelectorAll("#feedsTable tbody tr").forEach(function(tr){
+    const ok1 = !q || tr.dataset.name.toLowerCase().indexOf(q) >= 0;
+    const ok2 = !cat || tr.dataset.cat === cat;
+    tr.style.display = (ok1 && ok2) ? "" : "none";
+  });
+}
+
+// ========== 配方 ==========
+async function renderFormulas(m) {
+  const data = await api("/formulas/");
+  const items = data.data || [];
+  let html = "<div class=\"card\"><h2>配方库（共 " + items.length + " 条）</h2>";
+  html += "<button onclick=\"render()\">刷新</button>";
+  html += "</div>";
+  html += "<div class=\"card\"><table><thead><tr>";
+  html += "<th>名称</th><th>成本</th><th>CP%</th><th>ME</th><th>创建时间</th><th>操作</th>";
+  html += "</tr></thead><tbody>";
+  items.forEach(function(f){
+    const nr = f.nutrition_result || {};
+    html += "<tr>";
+    html += "<td><b>" + f.name + "</b></td>";
+    html += "<td>¥" + (f.total_cost || 0).toFixed(2) + "</td>";
+    html += "<td>" + nf(nr.cp_pct) + "</td>";
+    html += "<td>" + nf(nr.me_mj_kg) + "</td>";
+    html += "<td>" + (f.created_at ? f.created_at.slice(0,16).replace("T"," ") : "-") + "</td>";
+    html += "<td>";
+    html += "<button onclick=\"showFormula('" + f.id + "')\">详情</button>";
+    html += "<button class=\"gray\" onclick=\"exportFormula('" + f.id + "')\">导出</button>";
+    html += "<button class=\"danger\" onclick=\"delFormula('" + f.id + "')\">删除</button>";
+    html += "</td></tr>";
+  });
+  html += "</tbody></table></div>";
+  m.innerHTML = html;
+}
+
+async function showFormula(id) {
+  const data = await api("/formulas/" + id);
+  const f = data.data;
+  const nr = f.nutrition_result || {};
+  const ing = f.ingredients || [];
+  let html = "<div class=\"modal-bg\" onclick=\"if(event.target===this) closeModal()\"><div class=\"modal\">";
+  html += "<h2>" + f.name + "</h2>";
+  html += "<p><b>成本：</b>¥" + (f.total_cost||0).toFixed(2) + " / 单位鲜重</p>";
+  html += "<h3>原料</h3><table><thead><tr><th>原料</th><th>比例</th></tr></thead><tbody>";
+  ing.forEach(function(it){
+    html += "<tr><td>" + (it.name||it.feed_id) + "</td><td>" + Number(it.ratio).toFixed(2) + "%</td></tr>";
+  });
+  html += "</tbody></table>";
+  html += "<h3>营养</h3><table><thead><tr><th>指标</th><th>数值</th></tr></thead><tbody>";
+  const labels = {cp_pct:"粗蛋白%",ndf_pct:"NDF%",adf_pct:"ADF%",me_mj_kg:"代谢能 MJ/kg",tdn_pct:"TDN%",ca_pct:"钙%",p_pct:"磷%",dm_pct:"干物质%"};
+  Object.keys(labels).forEach(function(k){
+    if (nr[k] != null) html += "<tr><td>" + labels[k] + "</td><td>" + Number(nr[k]).toFixed(3) + "</td></tr>";
+  });
+  html += "</tbody></table>";
+  html += "<p style=\"margin-top:20px\"><button class=\"gray\" onclick=\"closeModal()\">关闭</button></p>";
+  html += "</div></div>";
+  document.body.insertAdjacentHTML("beforeend", html);
+}
+
+function closeModal() {
+  document.querySelectorAll(".modal-bg").forEach(function(e){ e.remove(); });
+}
+
+async function delFormula(id) {
+  if (!confirm("确定删除这条配方？")) return;
+  await api("/formulas/" + id, {method: "DELETE"});
+  toast("已删除");
+  render();
+}
+
+function exportFormula(id) {
+  window.open("/api/v1/export/formula/" + id, "_blank");
+}
+
+// ========== 优化 ==========
+async function renderOptimize(m) {
+  const t = await api("/templates/");
+  const tpls = t.data || [];
+  let html = "<div class=\"card\"><h2>配方优化</h2>";
+  html += "<p>选择模板：</p>";
+  html += "<select id=\"tplSelect\" style=\"min-width:400px\">";
+  tpls.forEach(function(tp){
+    html += "<option value=\"" + tp.id + "\">" + tp.name + "（" + (tp.category||"-") + "）- " + (tp.description||"") + "</option>";
+  });
+  html += "</select>";
+  html += "<button onclick=\"runOptimize()\">跑优化</button>";
+  html += "</div>";
+  html += "<div id=\"optResult\"></div>";
+  m.innerHTML = html;
+}
+
+async function runOptimize() {
+  const id = document.getElementById("tplSelect").value;
+  const box = document.getElementById("optResult");
+  box.innerHTML = "<div class=\"card\">优化中，请稍等...</div>";
+  try {
+    const r = await api("/templates/" + id + "/apply", {method: "POST"});
+    const d = r.data;
+    if (d.status !== "optimal") {
+      box.innerHTML = "<div class=\"card\"><h2 style=\"color:#e74c3c\">无解</h2><p>" + (d.error||"") + "</p></div>";
+      return;
+    }
+    let html = "<div class=\"card\"><h2>优化结果</h2>";
+    html += "<p><b>总成本：</b>¥" + (d.total_cost||0).toFixed(2) + "　<b>每 kg DM 成本：</b>¥" + (d.cost_per_kg_dm||0).toFixed(4) + "</p>";
+    html += "<h3>推荐配料</h3><table><thead><tr><th>原料</th><th>比例%</th><th>单价</th></tr></thead><tbody>";
+    d.formula.forEach(function(it){
+      html += "<tr><td>" + it.name + "</td><td>" + it.ratio_pct + "</td><td>¥" + (it.price_yuan_kg||0) + "</td></tr>";
+    });
+    html += "</tbody></table>";
+    html += "<h3>营养达成</h3><table><thead><tr><th>指标</th><th>实际</th><th>范围</th><th>状态</th></tr></thead><tbody>";
+    (d.constraint_status||[]).forEach(function(cs){
+      const badge = cs.status === "ok" ? "badge-ok" : "badge-critical";
+      html += "<tr><td>" + cs.field + "</td><td>" + cs.actual + "</td><td>" + (cs.min==null?"-":cs.min) + " ~ " + (cs.max==null?"-":cs.max) + "</td><td><span class=\"badge " + badge + "\">" + cs.status + "</span></td></tr>";
+    });
+    html += "</tbody></table>";
+    html += "<p style=\"margin-top:16px\"><input id=\"saveName\" placeholder=\"配方名\" value=\"优化配方-" + Date.now().toString().slice(-6) + "\" style=\"width:200px\"/>";
+    html += "<button class=\"success\" onclick=\"saveOptimized('" + id + "')\">保存为配方</button></p>";
+    html += "</div>";
+    box.innerHTML = html;
+  } catch (e) {
+    box.innerHTML = "<div class=\"card\">优化失败：" + (e.detail||e.message||e) + "</div>";
+  }
+}
+
+async function saveOptimized(tplId) {
+  const name = document.getElementById("saveName").value || "未命名";
+  try {
+    await api("/templates/" + tplId + "/apply-save", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({formula_name: name})
+    });
+    toast("已保存：" + name);
+    setTimeout(function(){ switchTab("formulas"); }, 800);
+  } catch (e) {}
+}
+
+// ========== 预警 ==========
+async function renderAlerts(m) {
+  const list = await api("/alerts/active");
+  const sum = await api("/alerts/summary");
+  const items = list.data.items || [];
+  let html = "<div class=\"stat-grid\">";
+  html += "<div class=\"stat\"><h3>" + sum.data.total + "</h3><p>总预警</p></div>";
+  html += "<div class=\"stat\" style=\"background:linear-gradient(135deg,#f093fb,#f5576c)\"><h3>" + sum.data.active + "</h3><p>活跃预警</p></div>";
+  html += "</div>";
+  html += "<div class=\"card\"><h2>活跃预警</h2>";
+  if (items.length === 0) {
+    html += "<p>暂无活跃预警</p>";
+  } else {
+    html += "<table><thead><tr><th>类型</th><th>标题</th><th>严重度</th><th>时间</th><th>操作</th></tr></thead><tbody>";
+    items.forEach(function(a){
+      const badge = a.severity === "critical" ? "badge-critical" : (a.severity === "warning" ? "badge-warning" : "badge-info");
+      html += "<tr>";
+      html += "<td>" + a.alert_type + "</td>";
+      html += "<td>" + a.title + "</td>";
+      html += "<td><span class=\"badge " + badge + "\">" + a.severity + "</span></td>";
+      html += "<td>" + a.triggered_at.slice(0,16).replace("T"," ") + "</td>";
+      html += "<td>";
+      html += "<button onclick=\"ackAlert('" + a.id + "')\">确认</button>";
+      html += "<button class=\"success\" onclick=\"resolveAlert('" + a.id + "')\">解决</button>";
+      html += "</td></tr>";
+    });
+    html += "</tbody></table>";
+  }
+  html += "</div>";
+  m.innerHTML = html;
+}
+
+async function ackAlert(id) {
+  await api("/alerts/" + id + "/acknowledge?user_id=web", {method: "PUT"});
+  toast("已确认");
+  render();
+}
+
+async function resolveAlert(id) {
+  await api("/alerts/" + id + "/resolve", {method: "PUT"});
+  toast("已解决");
+  render();
+}
+
+// ========== 看板 ==========
+async function renderDashboard(m) {
+  const f = await api("/formulas/");
+  const fe = await api("/feeds/");
+  const al = await api("/alerts/summary");
+  let html = "<div class=\"stat-grid\">";
+  html += "<div class=\"stat\"><h3>" + (fe.data||[]).length + "</h3><p>原料种类</p></div>";
+  html += "<div class=\"stat\" style=\"background:linear-gradient(135deg,#4facfe,#00f2fe)\"><h3>" + (f.data||[]).length + "</h3><p>已保存配方</p></div>";
+  html += "<div class=\"stat\" style=\"background:linear-gradient(135deg,#f093fb,#f5576c)\"><h3>" + al.data.active + "</h3><p>活跃预警</p></div>";
+  html += "<div class=\"stat\" style=\"background:linear-gradient(135deg,#43e97b,#38f9d7)\"><h3>" + al.data.total + "</h3><p>累计预警</p></div>";
+  html += "</div>";
+  html += "<div class=\"card\"><h2>快捷操作</h2>";
+  html += "<button onclick=\"switchTab('optimize')\">🚀 跑配方优化</button>";
+  html += "<button onclick=\"switchTab('formulas')\">📋 查看配方</button>";
+  html += "<button onclick=\"switchTab('alerts')\">🚨 查看预警</button>";
+  html += "</div>";
+  m.innerHTML = html;
+}
+
+document.querySelectorAll("nav a").forEach(function(a){
+  a.onclick = function(){ switchTab(a.dataset.tab); };
+});
+
+switchTab("feeds");
+</script>
+</body>
+</html>

@@ -1,0 +1,88 @@
+========================================================
+双模型修正版 —— 文件替换清单
+========================================================
+
+把下面 6 个文件，按「替换到你的项目对应路径」覆盖即可。
+
+【必须替换】核心双模型
+  ├── models/feed_models.py          ← 完整 11 字段 + extra_json + parse_mid
+  ├── services/nutrition_engine.py   ← 模型A：DM加权营养计算（缺字段即报错）
+  └── services/recommendation_engine.py  ← 模型B：scipy线性规划（鲜重空间标准版）
+
+【建议替换】配套文件
+  ├── services/feed_crud.py          ← 原料 CRUD（原占位 pass 已补全）
+  ├── api/recommend.py               ← 推荐接口（真正调用模型B）
+  └── schedulers/scheduler.py       ← 定时任务（原文件被截断，已补全 start/stop）
+
+【验证脚本】本地跑一遍确认（非必需，可删）
+  ├── verify_dual_model.py           ← 双模型综合测试（已全绿）
+  └── verify_e2e.py                 ← 端到端测试（复现你的真实配方）
+
+========================================================
+部署步骤（在你的项目根目录执行）
+========================================================
+
+1. 停止正在运行的 uvicorn（Ctrl+C）
+
+2. 备份旧文件（可选但推荐）：
+     copy models\feed_models.py models\feed_models.py.bak
+     copy services\recommendation_engine.py services\recommendation_engine.py.bak
+
+3. 用上面的文件覆盖（直接同名粘贴/替换内容）
+
+4. 因为 Feed 模型加了字段（dm_pct/adf_pct/tdn_pct/ca_pct/p_pct/extra_json），
+   必须重建数据库：
+     del data\simmental_nutrition.db
+     python init_project.py
+
+5. 导入原料（把 原料含量.xlsx 放到项目根目录）：
+     python import_feeds.py
+
+6. 重启服务：
+     uvicorn main:app --reload --port 8000
+
+7. 打开 http://localhost:8000/docs
+   → POST /api/v1/feeds/  试录一条原料
+   → POST /api/v1/recommend/  用下面的 body 测试配方优化：
+
+----- recommend 请求示例 -----
+{
+  "targets": {
+    "cp_pct": {"min": 14, "max": 18},
+    "me_mj_kg": {"min": 9, "max": 12},
+    "ca_pct": {"min": 0.6, "max": 1.2}
+  },
+  "candidates": [
+    {"name": "玉米", "max_ratio": 60},
+    {"name": "豆粕（43%）", "max_ratio": 30},
+    {"name": "麦麸", "max_ratio": 30},
+    {"name": "苜蓿（初花期）", "max_ratio": 40},
+    {"name": "石粉（碳酸钙）", "max_ratio": 3}
+  ],
+  "total_weight": 100
+}
+----- /recommend -----
+
+========================================================
+本次修复的关键点（早期审核报告的 P0/P1）
+========================================================
+[P0] Feed 模型字段统一为 11 个营养字段（原 scaffold 只有 4 个，会导致计算结果 silently wrong）
+[P0] 缺失关键营养指标 → 报错而非静默用 0（避免"玉米蛋白变0"这类隐蔽错误）
+[P0] 优化模型与营养模型口径统一为"DM加权"，保证 optimize 与复核永远一致
+[P1] 补全 scheduler.py 的 start_scheduler/stop_scheduler（原文件被截断）
+[P1] 补全 import_feeds.py 末尾循环体
+[P1] 影子价格提取加 scipy 版本 fallback（marginals 属性兼容旧版）
+[P2] 删除旧的 setup_recommend.py 占位引擎，统一用 recommendation_engine.py
+
+========================================================
+验证结果（已在沙盒跑通）
+========================================================
+✅ 模型A：DM加权营养计算，口径正确
+✅ 模型B：CP14-18/ME9-12/Ca0.6-1.2 约束下，配比和=100%，全部达标
+✅ 无解诊断：CP要求≥50% 时正确返回"原料最高仅15.1%"
+✅ 缺失字段：正确抛出 ValueError
+✅ 影子价格：正确标注紧约束（cp_pct_max/me_mj_kg_max/ca_pct_max）
+
+注意：钙上限 1.2% 在你的原料组合下偏紧（石粉38%钙 + 苜蓿高钙），
+      实际育肥牛钙上限通常 1.5~2.0%。若坚持 1.2%，
+      可减少石粉用量或选择低钙原料，引擎会给出最优折中。

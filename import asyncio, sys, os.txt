@@ -1,0 +1,101 @@
+import asyncio, sys, os
+sys.path.insert(0, os.path.dirname(__file__))
+
+import pandas as pd
+from database import AsyncSessionLocal, engine
+from models.feed_models import Feed
+from models.base import Base
+from sqlalchemy import select
+
+EXCEL_PATH = os.path.join(os.path.dirname(__file__), "原料含量.xlsx")
+
+COLUMN_MAP = {
+    "原料名称": "name",
+    "类别": "category",
+    "干物质(%)": "dm_pct",
+    "粗蛋白(%)": "cp_pct",
+    "NDF(%)": "ndf_pct",
+    "ADF(%)": "adf_pct",
+    "TDN(%)": "tdn_pct",
+    "代谢能(MJ/kg)": "me_mj_kg",
+    "钙(%)": "ca_pct",
+    "磷(%)": "p_pct",
+    "价格(元/kg)": "price_yuan_kg",
+}
+
+def _parse_mid(val):
+    if pd.isna(val):
+        return None
+    s = str(val).strip()
+    if "~" in s:
+        parts = s.split("~")
+        try:
+            return round((float(parts[0]) + float(parts[1])) / 2, 4)
+        except:
+            return None
+    try:
+        return float(s)
+    except:
+        return None
+
+async def import_feeds():
+    print("=" * 60)
+    print("📦 批量导入原料数据")
+    print("=" * 60)
+
+    if not os.path.exists(EXCEL_PATH):
+        print("❌ 找不到Excel:", EXCEL_PATH)
+        return
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    df = pd.read_excel(EXCEL_PATH, header=0)
+    print("📄 读取到", len(df), "行")
+    print("   列名:", list(df.columns[:10]))
+
+    name_col = df.columns[0]
+    print("   原料名列:", name_col)
+
+    async with AsyncSessionLocal() as db:
+        inserted = 0
+        updated = 0
+
+        for idx, row in df.iterrows():
+            raw_name = row[name_col]
+            if pd.isna(raw_name) or str(raw_name).strip() == "":
+                continue
+            name = str(raw_name).strip()
+
+            existing = await db.execute(select(Feed).where(Feed.name == name))
+            feed = existing.scalar_one_or_none()
+            is_new = feed is None
+            if is_new:
+                feed = Feed(name=name)
+                db.add(feed)
+
+            for excel_col, field_name in COLUMN_MAP.items():
+                if excel_col == "原料名称":
+                    continue
+                if excel_col not in df.columns:
+                    continue
+                val = _parse_mid(row[excel_col])
+                if val is not None:
+                    setattr(feed, field_name, val)
+
+            if not feed.category:
+                for kw, cat in [("玉米", "能量"), ("麦麸", "能量"), ("豆粕", "蛋白"), ("苜蓿", "粗饲料"), ("石粉", "矿物质"), ("盐", "矿物质")]:
+                    if kw in name:
+                        feed.category = cat
+                        break
+
+            if is_new:
+                inserted += 1
+            else:
+                updated += 1
+
+        await db.commit()
+        print(f"\n✅ 完成! 新增 {inserted}, 更新 {updated}")
+
+if __name__ == "__main__":
+    asyncio.run(import_feeds())

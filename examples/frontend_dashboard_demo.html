@@ -1,0 +1,48 @@
+\
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>📊 数据看板 Demo</title>
+<style>
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 0; padding: 20px; background: #f5f7fa; }
+.container { max-width: 1200px; margin: 0 auto; }
+h1 { color: #2c3e50; }
+.card { background: white; border-radius: 12px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+.btn { padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; background: #3498db; color: white; margin-right: 10px; }
+pre { background: #f8f9fa; padding: 15px; border-radius: 8px; overflow: auto; max-height: 400px; }
+</style>
+</head>
+<body>
+<div class="container">
+<h1>📊 西门塔尔公牛营养模型 - 数据看板</h1>
+<div class="card">
+<h3>🎮 操作</h3>
+<button class="btn" onclick="loadOverview()">总览</button>
+<button class="btn" onclick="loadPriceTrend()">价格趋势</button>
+<button class="btn" onclick="loadNutrition()">营养分析</button>
+<button class="btn" onclick="exportReport()">导出报表</button>
+</div>
+<div class="card" id="result">点击按钮加载数据...</div>
+</div>
+<script>
+// ✅ 绝对地址
+const API = 'http://localhost:8000/api/v1/dashboard';
+
+async function call(path, opts={}) {
+  try {
+    const r = await fetch(API + path, opts);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return await r.json();
+  } catch (e) {
+    console.error(e);
+    return { success: false, error: e.message };
+  }
+}
+async function loadOverview() { const d = await call('/overview'); document.getElementById('result').innerHTML = '<pre>'+JSON.stringify(d,null,2)+'</pre>'; }
+async function loadPriceTrend() { const d = await call('/price-trend'); document.getElementById('result').innerHTML = '<pre>'+JSON.stringify(d,null,2)+'</pre>'; }
+async function loadNutrition() { const d = await call('/nutrition-analysis'); document.getElementById('result').innerHTML = '<pre>'+JSON.stringify(d,null,2)+'</pre>'; }
+async function exportReport() { const d = await call('/export',{method:'POST'}); document.getElementById('result').innerHTML = '<pre>'+JSON.stringify(d,null,2)+'</pre>'; }
+</script>
+</body>
+</html>
