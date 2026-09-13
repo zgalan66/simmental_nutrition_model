@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.db
+.env
+.DS_Store
+*.bat
+6}
+import*.txt
