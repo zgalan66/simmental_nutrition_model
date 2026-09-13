@@ -2,7 +2,7 @@ name: pytest
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main ]
   pull_request:
     branches: [ main ]
 
@@ -15,31 +15,16 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Set up Python 3.13
+    - name: Set up Python 3.11
       uses: actions/setup-python@v5
       with:
-        python-version: '3.13'
+        python-version: '3.11'
 
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install pytest pytest-asyncio httpx
-
-    - name: Initialize database
-      run: python init_project.py
-
-    - name: Seed salt if missing
-      run: python -c 'import sqlite3,uuid;conn=sqlite3.connect("simmental_nutrition.db");c=conn.cursor();c.execute("INSERT OR IGNORE INTO feeds (id,name,category,dm_pct,cp_pct,ndf_pct,adf_pct,me_mj_kg,tdn_pct,ca_pct,p_pct,price_yuan_kg,is_active,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",(str(uuid.uuid4()),"盐","矿物质",98.0,0.0,0.0,0.0,0.0,0.0,0.3,0.0,2.5,1,"2026-09-14"));conn.commit();conn.close();print("done")'
+        pip install pytest
 
     - name: Run pytest
-      run: pytest tests/ -v --tb=short
-
-    - name: Upload test results on failure
-      if: failure()
-      uses: actions/upload-artifact@v4
-      with:
-        name: test-results
-        path: |
-          .pytest_cache/
-          simmental_nutrition.db
+      run: pytest tests/ -v
